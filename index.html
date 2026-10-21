@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Forme al clic</title>
+<title>Shape generation</title>
 <style>
   @font-face {
     font-family: "ABC Diatype";
@@ -43,14 +43,14 @@
   .bar {
     position: fixed;
     left: var(--m); right: var(--m);
-    top: calc(10px - 0.15em + env(safe-area-inset-top, 0px));
-    height: 1em;
+    top: env(safe-area-inset-top, 0px);
+    bottom: env(safe-area-inset-bottom, 0px);
     pointer-events: none;
     mix-blend-mode: difference;
     color: #ffffff;
   }
   .bar button {
-    position: absolute; top: 0; left: 0;
+    position: absolute; top: calc(10px - 0.15em); left: 0;
     pointer-events: auto;
     appearance: none; -webkit-appearance: none;
     background: none; border: 0; margin: 0; padding: 0;
@@ -61,9 +61,11 @@
   }
   .bar button:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
   /* formato verticale (mobile): pulsanti in basso, cursori rialzati */
-  :root[data-layout="mobile"] .bar { top: auto; bottom: calc(15px - 0.15em + env(safe-area-inset-bottom, 0px)); }
-  :root[data-layout="mobile"] .track.v { left: 16px; top: 10px; bottom: 70px; }
-  :root[data-layout="mobile"] .track.h { left: 10px; right: 10px; bottom: 58.5px; }
+  :root[data-layout="mobile"] { --fs: clamp(9px, calc((100vw - 20px) / 22.67), 20px); }
+  :root[data-layout="mobile"] .bar button.top { top: 10px; }
+  :root[data-layout="mobile"] .bar button.bot { top: auto; bottom: calc(15px - 0.15em); }
+  :root[data-layout="mobile"] .track.v { left: 16px; top: calc(62.5px + 0.075 * var(--fs)); bottom: calc(77.5px - 0.075 * var(--fs)); }
+  :root[data-layout="mobile"] .track.h { left: 27.5px; right: 27.5px; bottom: calc(66px - 0.075 * var(--fs)); }
 
   #ui {
     position: fixed;
@@ -110,11 +112,11 @@
 </div>
 
 <div class="bar" id="bar">
-  <button id="btn-invert" type="button">● Invert color</button>
-  <button id="btn-shape" type="button">― Invert shape</button>
-  <button id="btn-reset" type="button">■ Reset</button>
-  <button id="btn-random" type="button">◆ Random</button>
-  <button id="btn-save" type="button">▼ Save SVG</button>
+  <button id="btn-invert" class="top" type="button">● Invert color</button>
+  <button id="btn-shape" class="bot" type="button">― Invert shape</button>
+  <button id="btn-reset" class="bot" type="button">■ Reset</button>
+  <button id="btn-random" class="bot" type="button">◆ Random</button>
+  <button id="btn-save" class="top" type="button">▼ Save SVG</button>
 </div>
 
 <script>
@@ -154,10 +156,19 @@
   }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+  // Mobile: il blocco (cursori + scritta) sta centrato tra la riga di pulsanti in alto e quella in basso,
+  // alla stessa distanza da entrambe. Dipende dalla dimensione del testo.
+  function mobileBlock(h) {
+    var fs = parseFloat(getComputedStyle(bar).fontSize) || 20;
+    var y0 = 62.5 + 0.075 * fs;       // inizio della linea verticale
+    var y1 = h - 77.5 + 0.075 * fs;   // fine della linea verticale
+    return { y0: y0, y1: y1, yh: y1 + 10 }; // yh = linea orizzontale
+  }
+
   // corsa dei cursori: in verticale (mobile) la linea verticale va da 10px a h-70px
   function trackRange(w, h) {
     return isMobile
-      ? { x0: 17.5, x1: w - 17.5, y0: 17.5, y1: h - 70 }
+      ? { x0: 27.5, x1: w - 27.5, y0: mobileBlock(h).y0, y1: mobileBlock(h).y1 }
       : { x0: TRACK_END, x1: w - TRACK_END, y0: TRACK_END, y1: h - TRACK_END };
   }
   function centerPoint(w, h) {
@@ -181,22 +192,26 @@
   }
 
   // Geometria di una forma: quadrato + triangolo con una punta al centro pagina
-  function shapeFor(s, w, h) {
+  function shapeFor(s, w, h, final) {
+    var k = (final || s.k == null) ? 1 : s.k; // avanzamento dell'animazione, da 0 a 1
+    var H = HALF * k;                          // mezza dimensione corrente (scala 0-100%)
     var c = centerPoint(w, h);
     var cx = c.x, cy = c.y;
-    var x = w >= SIZE ? clamp(s.x, HALF, w - HALF) : s.x;
-    var y = h >= SIZE ? clamp(s.y, HALF, h - HALF) : s.y;
-    var left = x - HALF, top = y - HALF;
+    // posizione finale (dentro la pagina) e posizione lungo il percorso dal punto di convergenza
+    var xf = w >= SIZE ? clamp(s.x, HALF, w - HALF) : s.x;
+    var yf = h >= SIZE ? clamp(s.y, HALF, h - HALF) : s.y;
+    var x = cx + (xf - cx) * k, y = cy + (yf - cy) * k;
+    var left = x - H, top = y - H;
     var dx = cx - x, dy = cy - y;
     // diagonale piu perpendicolare alla direzione verso il centro
     var pts = null, tri = null;
     if (shapeMode === "circle") {
       // lati tangenti al cerchio: toccano la circonferenza nei punti piu esterni
       var d = Math.sqrt(dx * dx + dy * dy);
-      if (d > HALF) {
+      if (d > H) {
         var phi = Math.atan2(y - cy, x - cx); // dal centro pagina verso il cerchio
-        var alpha = Math.asin(HALF / d);
-        var tl = Math.sqrt(d * d - HALF * HALF); // lunghezza del segmento tangente
+        var alpha = Math.asin(H / d);
+        var tl = Math.sqrt(d * d - H * H); // lunghezza del segmento tangente
         pts = [cx, cy,
                cx + tl * Math.cos(phi - alpha), cy + tl * Math.sin(phi - alpha),
                cx + tl * Math.cos(phi + alpha), cy + tl * Math.sin(phi + alpha)];
@@ -204,7 +219,7 @@
     } else if (shapeMode === "triangle") {
       // base 200 e altezza 200, ruotato di 90/180/270 gradi (a caso per ogni clic) attorno al centro;
       // le linee toccano i due vertici piu esterni
-      var tv = [[-HALF, HALF], [HALF, HALF], [0, -HALF]];
+      var tv = [[-H, H], [H, H], [0, -H]];
       tri = [];
       for (var m = 0; m < 3; m++) {
         var vx = tv[m][0], vy = tv[m][1];
@@ -225,13 +240,13 @@
       }
     } else {
       var p1, p2;
-      if (Math.abs(dx + dy) < Math.abs(dx - dy)) { p1 = [x - HALF, y - HALF]; p2 = [x + HALF, y + HALF]; }
-      else                                       { p1 = [x - HALF, y + HALF]; p2 = [x + HALF, y - HALF]; }
+      if (Math.abs(dx + dy) < Math.abs(dx - dy)) { p1 = [x - H, y - H]; p2 = [x + H, y + H]; }
+      else                                       { p1 = [x - H, y + H]; p2 = [x + H, y - H]; }
       pts = [cx, cy, p1[0], p1[1], p2[0], p2[1]];
     }
     return {
-      x: x, y: y, tri: tri,
-      rect: { x: left, y: top, width: SIZE, height: SIZE },
+      x: x, y: y, half: H, tri: tri,
+      rect: { x: left, y: top, width: 2 * H, height: 2 * H },
       points: pts
     };
   }
@@ -264,7 +279,7 @@
     hV.style.left = (isMobile ? 17.5 : 30) + "px";
     hV.style.top = c.y + "px";
     hH.style.left = c.x + "px";
-    hH.style.top = (p.h - (isMobile ? 60 : 30)) + "px";
+    hH.style.top = (isMobile ? mobileBlock(p.h).yh : p.h - 30) + "px";
     hV.setAttribute("aria-valuenow", Math.round(c.y));
     hH.setAttribute("aria-valuenow", Math.round(c.x));
     hint.style.left = c.x + "px";
@@ -273,7 +288,7 @@
     squares.forEach(function (s) {
       var sh = shapeFor(s, p.w, p.h);
       if (sh.points && !sh.tri) svg.appendChild(el("polygon", { points: sh.points.join(" ") }));
-      if (shapeMode === "circle") svg.appendChild(el("circle", { cx: sh.x, cy: sh.y, r: HALF }));
+      if (shapeMode === "circle") svg.appendChild(el("circle", { cx: sh.x, cy: sh.y, r: sh.half }));
       else if (sh.tri) svg.appendChild(el("path", { d: triPath(sh) }));
       else svg.appendChild(el("rect", sh.rect));
     });
@@ -287,7 +302,7 @@
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + n(p.w) + ' ' + n(p.h) + '">\n';
     if (dark) out += '  <rect width="' + n(p.w) + '" height="' + n(p.h) + '" fill="#000"/>\n';
     squares.forEach(function (s) {
-      var sh = shapeFor(s, p.w, p.h);
+      var sh = shapeFor(s, p.w, p.h, true); // il file salvato contiene sempre le forme finali
       var pts = sh.points ? sh.points.map(n) : null;
       if (shapeMode === "circle") {
         out += '  <circle cx="' + n(sh.x) + '" cy="' + n(sh.y) + '" r="' + n(HALF) + '" fill="' + ink + '"/>\n';
@@ -301,11 +316,45 @@
     return out + '</svg>\n';
   }
 
+  // Animazione di ingresso: la forma parte dal punto di convergenza, scala da 0 a 100%
+  // e arriva al punto del clic: mezzo secondo con Random, un quarto di secondo con il clic singolo.
+  var DURATION = 500; // ms, forme di Random
+  var CLICK_DURATION = 250; // ms, forma creata con un clic
+  var FRAME = 1000 / 24; // un frame a 24 fps, usato per sfalsare le forme di Random
+  // Curva con influenza dell'85% in entrata e in uscita = cubic-bezier(0.85, 0, 0.15, 1)
+  function ease(p) {
+    var x1 = 0.85, y1 = 0, x2 = 0.15, y2 = 1;
+    var lo = 0, hi = 1, tt = p, i;
+    for (i = 0; i < 30; i++) {
+      tt = (lo + hi) / 2;
+      var bx = 3 * (1 - tt) * (1 - tt) * tt * x1 + 3 * (1 - tt) * tt * tt * x2 + tt * tt * tt;
+      if (bx < p) lo = tt; else hi = tt;
+    }
+    return 3 * (1 - tt) * (1 - tt) * tt * y1 + 3 * (1 - tt) * tt * tt * y2 + tt * tt * tt;
+  }
+  var raf = 0;
+  function tick(now) {
+    var active = false;
+    squares.forEach(function (s) {
+      if (s.born == null) return;
+      var pr = (now - s.born) / (s.dur || DURATION);
+      if (pr >= 1) { s.k = 1; s.born = null; }
+      else { s.k = ease(Math.max(0, pr)); active = true; }
+    });
+    render();
+    raf = active ? requestAnimationFrame(tick) : 0;
+  }
+  function addShape(x, y, delay, dur) {
+    squares.push({ x: x, y: y, rot: randRot(), k: 0, dur: dur || DURATION, born: performance.now() + (delay || 0) });
+  }
+  function startAnim() { if (!raf) raf = requestAnimationFrame(tick); }
+
   svg.addEventListener("click", function (e) {
     var r = svg.getBoundingClientRect();
-    squares.push({ x: e.clientX - r.left, y: e.clientY - r.top, rot: randRot() });
+    addShape(e.clientX - r.left, e.clientY - r.top, 0, CLICK_DURATION);
     hint.classList.add("hidden");
     render();
+    startAnim();
   });
 
   btnInvert.addEventListener("click", function () {
@@ -373,12 +422,20 @@
     function rnd(len) { return len > SIZE ? HALF + Math.random() * (len - SIZE) : len / 2; }
     var count = 2 + Math.floor(Math.random() * 9); // da 2 a 10
     squares = []; // ogni Random riparte da zero
-    for (var i = 0; i < count; i++) squares.push({ x: rnd(p.w), y: rnd(p.h), rot: randRot() });
+    // ingresso sfalsato: ordine casuale, ogni forma parte un frame dopo la precedente
+    var order = [], i, j2, tmp;
+    for (i = 0; i < count; i++) order.push(i);
+    for (i = count - 1; i > 0; i--) {
+      j2 = Math.floor(Math.random() * (i + 1));
+      tmp = order[i]; order[i] = order[j2]; order[j2] = tmp;
+    }
+    for (i = 0; i < count; i++) addShape(rnd(p.w), rnd(p.h), order[i] * FRAME);
     // anche i pallini dei due assi vanno in posizione casuale
     fx = Math.random();
     fy = Math.random();
     hint.classList.add("hidden");
     render();
+    startAnim();
   });
 
   btnShape.addEventListener("click", function () {
@@ -434,6 +491,16 @@
   var bar = document.getElementById("bar");
   function layoutBar() {
     var W = bar.clientWidth;
+    if (isMobile) {
+      // in alto: Invert color a sinistra, Save SVG a destra
+      btnInvert.style.left = "0px";
+      btnSave.style.left = (W - btnSave.offsetWidth) + "px";
+      // in basso: Invert shape a sinistra, Reset al centro della pagina, Random a destra
+      btnShape.style.left = "0px";
+      btnReset.style.left = ((W - btnReset.offsetWidth) / 2) + "px";
+      btnRandom.style.left = (W - btnRandom.offsetWidth) + "px";
+      return;
+    }
     var fs = parseFloat(getComputedStyle(bar).fontSize) || 20;
     var ws = barBtns.map(function (b) { return b.offsetWidth; });
     var cnt = barBtns.length, sum = 0, i;
